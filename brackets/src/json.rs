@@ -1,4 +1,60 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, str::Chars};
+
+
+macro_rules! skip_whitespace {
+    ($c: expr) => {
+        if $c == ' ' || $c == '\n' || $c == '\t' {
+            continue
+        }
+    };
+}
+macro_rules! is_quote {
+    ($cv: expr, $it: expr) => {
+        $cv.chars().last().unwrap_or('_') != '\\' && $it == '"'
+    };
+}
+
+struct JsonDecoder;
+impl JsonDecoder {
+    fn derive_key(enumerator: &mut Chars) -> String {
+        let mut current_key = String::new();
+        'key: while let Some(key_content) = enumerator.next() {
+            if key_content != '"' {
+                current_key.push(key_content)
+            } else {
+                // Skip the colon (and spaces)
+                for t in enumerator.by_ref() {
+                    if t == ':' { break }
+                }
+                break 'key;
+            }
+        }
+        current_key
+    }
+
+    fn derive_value<T: Iterator<Item = char>>(enumerator: &mut T) -> String {
+        let mut current_value = String::new();
+        let mut value_start = ' ';
+        while value_start == ' ' || value_start == ',' {
+            value_start = enumerator.next().unwrap();
+        }
+        let current_type = JsonType::type_for_delimiter(value_start);
+        let mut delimeter_count = 1;
+        while let Some(n) = enumerator.next() {
+            if delimeter_count == 1 {
+                skip_whitespace!(n);
+            }
+            if current_type.should_increment(current_value.chars().last().unwrap_or('_'), n, delimeter_count) {
+                delimeter_count += 1;
+            } else if current_type.should_decrement(current_value.chars().last().unwrap_or('_'), n, delimeter_count) {
+                delimeter_count -= 1;
+            }
+            if delimeter_count == 0 && current_type.character_ends_type(n) { break; }
+            current_value.push(n);
+        }
+        current_value
+    }
+}
 
 /// A JSON structure that is formatted
 /// like the following:
@@ -30,92 +86,10 @@ impl JsonObject {
     /// * `json` — An owned string containing the JSON.
     pub fn from_string(json: &str) -> JsonObject {
         let mut keys: HashMap<String, String> = HashMap::new();
-
-        let mut current_key = String::new();
-        let mut current_value = String::new();
-
         let mut enumerator = json.chars();
-
         while let Some(c) = enumerator.next() {
             if c == '"' {
-                // Get key content.
-                'key: while let Some(key_content) = enumerator.next() {
-                    if key_content != '"' {
-                        current_key.push(key_content)
-                    } else {
-                        // Skip the colon (and spaces)
-                        for t in enumerator.by_ref() {
-                            if t == ':' { break }
-                        }
-                        break 'key;
-                    }
-                }
-
-                // Get value of derived key
-                let mut value_start = ' ';
-                while value_start == ' ' {
-                    value_start = enumerator.next().unwrap();
-                }
-
-                if let Some(t) = JsonType::type_for_delimiter(value_start) {
-                    // Read value
-                    if t == JsonType::Primitive {
-                        // We need to add the first index to the value.
-                        // Because the other types have delimeters (", {, [)
-                        // but primitives do not.
-                        current_value.push(value_start);
-                        let mut in_quote = value_start == '"';
-                        for inner_value in enumerator.by_ref() {
-                            if current_value.chars().last().unwrap_or('_') != '\\'
-                                && inner_value == '"'
-                            {
-                                in_quote = !in_quote;
-                            }
-                            if (inner_value == ',' || inner_value == '}' || inner_value == ']')
-                                && !in_quote
-                            {
-                                break;
-                            } else {
-                                current_value.push(inner_value);
-                            }
-                        }
-                    } else if t == JsonType::Object {
-                        let mut delimiter_stack_count = 1;
-                        current_value.push('{');
-                        for inner_value in enumerator.by_ref() {
-                            current_value.push(inner_value);
-                            if inner_value == '{' {
-                                delimiter_stack_count += 1;
-                            }
-                            if inner_value == '}' {
-                                delimiter_stack_count -= 1;
-                                if delimiter_stack_count == 0 {
-                                    // Remove the trailing }
-                                    // current_value.pop();
-                                    break;
-                                }
-                            }
-                        }
-                    } else if t == JsonType::Array {
-                        let mut delimiter_stack_count = 1;
-                        current_value.push('[');
-                        for inner_value in enumerator.by_ref() {
-                            current_value.push(inner_value);
-                            if inner_value == '[' {
-                                delimiter_stack_count += 1;
-                            }
-                            if inner_value == ']' {
-                                delimiter_stack_count -= 1;
-                                if delimiter_stack_count == 0 {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    keys.insert(current_key, current_value);
-                }
-                current_key = String::new();
-                current_value = String::new();
+                keys.insert(JsonDecoder::derive_key(&mut enumerator), JsonDecoder::derive_value(&mut enumerator));
             }
         }
         JsonObject { keys }
@@ -168,79 +142,10 @@ impl JsonArray {
     /// * `json` — An owned string containing the JSON.
     pub fn from_string(json: &str) -> JsonArray {
         let mut values: Vec<String> = Vec::new();
-        let json = json[1..json.chars().count()].to_string();
-
         let mut enumerator = json.chars().peekable();
-        let mut current_value = String::new();
 
         while enumerator.peek().is_some() {
-            let mut value_start = ' ';
-            // Trim any extra whitespace
-            for value_spacing in enumerator.by_ref() {
-                if value_spacing != ' ' {
-                    value_start = value_spacing;
-                    break;
-                }
-            }
-            if let Some(current_type) = JsonType::type_for_delimiter(value_start) {
-                // Read value
-                if current_type == JsonType::Primitive {
-                    // We need to add the first index to the value.
-                    // Because the other types have delimeters (", {, [)
-                    // but primitives do not.
-                    current_value.push(value_start);
-                    for inner_value in enumerator.by_ref() {
-                        if inner_value != ',' {
-                            current_value.push(inner_value)
-                        } else {
-                            break;
-                        }
-                    }
-                } else if current_type == JsonType::Object {
-                    let mut delimiter_stack_count = 1;
-                    current_value.push('{');
-                    for inner_value in enumerator.by_ref() {
-                        current_value.push(inner_value);
-                        if inner_value == '{' {
-                            delimiter_stack_count += 1;
-                        }
-                        if inner_value == '}' {
-                            delimiter_stack_count -= 1;
-                            if delimiter_stack_count == 0 {
-                                // Remove the trailing }
-                                break;
-                            }
-                        }
-                    }
-                } else if current_type == JsonType::Array {
-                    let mut delimiter_stack_count = 1;
-                    current_value.push('[');
-                    for inner_value in enumerator.by_ref() {
-                        current_value.push(inner_value);
-                        if inner_value == '[' {
-                            delimiter_stack_count += 1;
-                        }
-                        if inner_value == ']' {
-                            delimiter_stack_count -= 1;
-                            if delimiter_stack_count == 0 {
-                                break;
-                            }
-                        }
-                    }
-                }
-                // Because the primitive types do not have a ending delimiter
-                // and read straight to the comma, we do not search until a comma
-                // if our type is primitive.
-                if current_type != JsonType::Primitive {
-                    for value_skipper in enumerator.by_ref() {
-                        if value_skipper == ',' {
-                            break;
-                        }
-                    }
-                }
-            }
-            values.push(current_value);
-            current_value = String::new();
+            values.push(JsonDecoder::derive_value(&mut enumerator));
         }
 
         JsonArray { values }
@@ -297,18 +202,48 @@ impl Default for JsonArray {
 #[derive(Debug, PartialEq)]
 enum JsonType {
     Primitive,
+    String,
     Object,
     Array,
 }
 
 impl JsonType {
-    pub fn type_for_delimiter(dlm: char) -> Option<JsonType> {
+    pub fn type_for_delimiter(dlm: char) -> JsonType {
         if dlm == '[' {
-            Some(JsonType::Array)
+            JsonType::Array
         } else if dlm == '{' {
-            Some(JsonType::Object)
+            JsonType::Object
+        } else if dlm == '"' {
+            JsonType::String
         } else {
-            Some(JsonType::Primitive)
+            JsonType::Primitive
+        }
+    }
+
+    fn character_ends_type(&self, c: char) -> bool {
+        match self {
+            JsonType::Primitive => c == ',' || c == '}' || c == ']',
+            JsonType::String => c == ',' || c == '"',
+            JsonType::Object => c == ',' || c == '}',
+            JsonType::Array => c == ',' || c == ']',
+        }
+    }
+
+    fn should_increment(&self, prev: char, c: char, count: i32) -> bool {
+        match self {
+            JsonType::Primitive => false,
+            JsonType::String => prev != '\\' && c == '"' && count % 2 == 0,
+            JsonType::Object => c == '{',
+            JsonType::Array => c == '[',
+        }
+    }
+
+    fn should_decrement(&self, prev: char, c: char, count: i32) -> bool {
+        match self {
+            JsonType::Primitive => false,
+            JsonType::String => prev != '\\' && c == '"' && count % 2 == 1,
+            JsonType::Object => c == '}',
+            JsonType::Array => c == ']',
         }
     }
 }
@@ -473,11 +408,7 @@ pub trait JsonRetrieve {
 
 impl JsonRetrieve for String {
     fn parse(key: String, value: Option<&String>) -> Result<Self, JsonParseError> {
-        let mut v = value.ok_or(JsonParseError::NotFound(key))?.clone();
-        v.remove(0);
-        v.pop();
-        v = v.replace("\\\"", "\"");
-        Ok(v)
+        Ok(value.ok_or(JsonParseError::NotFound(key))?.to_string())
     }
 }
 impl JsonRetrieve for i32 {
