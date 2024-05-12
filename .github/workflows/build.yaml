@@ -1,0 +1,37 @@
+name: Publish
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Login to Cargo
+        run: cargo login ${{ secrets.CARGO_KEY }}
+      - name: Copy files into Crate
+        run: |
+          cp README.md brackets/README.md
+          cp README.md brackets-macros/README.md
+          cp LICENSE.txt brackets/LICENSE.txt
+          cp LICENSE.txt brackets-macros/LICENSE.txt
+      - name: Configure version
+        run: |
+          echo "Configuring to release with version ${{github.ref_name}}"
+          sed -i 's/0.0.0/${{github.ref_name}}/g' brackets/Cargo.toml
+          sed -i 's/0.0.0/${{github.ref_name}}/g' brackets-macros/Cargo.toml
+          sed -i 's|path = "../brackets-macros"|version = "${{github.ref_name}}"|g' brackets-macros/Cargo.toml
+      - name: Publish brackets
+        run: cd tusk-derive && cargo publish --allow-dirty
+      - name: Publish brackets-macros
+        run: cd tusk && cargo publish --allow-dirty

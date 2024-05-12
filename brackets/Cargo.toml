@@ -8,6 +8,7 @@ name = "brackets"
 
 [dependencies]
 chrono = { version = "0.4.38", optional = true }
+brackets-macros = { path = "../brackets-macros" }
 
 [features]
 default = ["chrono"]
