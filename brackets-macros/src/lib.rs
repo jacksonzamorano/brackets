@@ -29,7 +29,7 @@ pub fn derive_to_json(item: TokenStream) -> TokenStream {
     let impl_insert = if impl_types.is_empty() { quote!{} } else {quote!{<#(#impl_types),*>}};
 
     let output_new = quote! {
-        impl #generics tusk_rs::json::ToJson for #struct_name #impl_insert {
+        impl #generics brackets::ToJson for #struct_name #impl_insert {
             fn to_json(&self) -> String {
                 let mut output = String::new();
                 output += "{";
@@ -58,8 +58,8 @@ pub fn derive_from_json(item: TokenStream) -> TokenStream {
     });
 
     quote! {
-        impl tusk_rs::json::FromJson for #struct_name {
-            fn from_json(json: &tusk_rs::json::JsonObject) -> Result<#struct_name, tusk_rs::JsonParseError> {
+        impl brackets::FromJson for #struct_name {
+            fn from_json(json: &brackets::JsonObject) -> Result<#struct_name, brackets::JsonParseError> {
                 Ok(#struct_name {
                     #(#fields_get),*
                 })
