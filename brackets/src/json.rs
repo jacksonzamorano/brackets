@@ -8,17 +8,11 @@ macro_rules! skip_whitespace {
         }
     };
 }
-macro_rules! is_quote {
-    ($cv: expr, $it: expr) => {
-        $cv.chars().last().unwrap_or('_') != '\\' && $it == '"'
-    };
-}
-
 struct JsonDecoder;
 impl JsonDecoder {
     fn derive_key(enumerator: &mut Chars) -> String {
         let mut current_key = String::new();
-        'key: while let Some(key_content) = enumerator.next() {
+        while let Some(key_content) = enumerator.next() {
             if key_content != '"' {
                 current_key.push(key_content)
             } else {
@@ -26,7 +20,7 @@ impl JsonDecoder {
                 for t in enumerator.by_ref() {
                     if t == ':' { break }
                 }
-                break 'key;
+                break
             }
         }
         current_key
@@ -39,7 +33,10 @@ impl JsonDecoder {
             value_start = enumerator.next().unwrap();
         }
         let current_type = JsonType::type_for_delimiter(value_start);
-        let mut delimeter_count = 1;
+        if current_type.include_delimeter() {
+            current_value.push(value_start);
+        }
+        let mut delimeter_count = current_type.initial_increment();
         while let Some(n) = enumerator.next() {
             if delimeter_count == 1 {
                 skip_whitespace!(n);
@@ -229,6 +226,13 @@ impl JsonType {
         }
     }
 
+    fn initial_increment(&self) -> i32 {
+        match self {
+            JsonType::Primitive => 0,
+            _ => 1,
+        }
+    }
+
     fn should_increment(&self, prev: char, c: char, count: i32) -> bool {
         match self {
             JsonType::Primitive => false,
@@ -245,6 +249,10 @@ impl JsonType {
             JsonType::Object => c == '}',
             JsonType::Array => c == ']',
         }
+    }
+
+    fn include_delimeter(&self) -> bool {
+        return *self == JsonType::Primitive;
     }
 }
 
