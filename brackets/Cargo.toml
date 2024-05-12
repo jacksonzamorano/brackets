@@ -1,6 +1,8 @@
 [package]
 name = "brackets"
 version = "0.0.0"
+description = "Simple library for JSON I/O"
+license-file = "LICENSE.txt"
 edition = "2021"
 
 [lib]
