@@ -32,6 +32,6 @@ jobs:
           sed -i 's/0.0.0/${{github.ref_name}}/g' brackets-macros/Cargo.toml
           sed -i 's|path = "../brackets-macros"|version = "${{github.ref_name}}"|g' brackets-macros/Cargo.toml
       - name: Publish brackets-macros
-        run: cd brackets-macro && cargo publish --allow-dirty
+        run: cd brackets-macros && cargo publish --allow-dirty
       - name: Publish brackets
         run: cd brackets && cargo publish --allow-dirty
