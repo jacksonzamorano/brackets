@@ -5,7 +5,7 @@ pub use json::{FromJson, JsonArray, JsonObject, JsonParseError, ToJson};
 #[cfg(test)]
 mod test {
 
-	use crate::{self as brackets, JsonArray, ToJson};
+	use crate::{self as brackets};
 	use crate::{FromJson, JsonObject};
 
 	const TEST_JSON: &'static str = r#"
@@ -39,7 +39,8 @@ mod test {
 				2, 3,
 				4
 			],
-			"array_bools": [ true, false ]
+			"array_bools": [ true, false ],
+			"string_with_quotes": "Hello \"World!\""
 		}
 	"#;
 
@@ -51,7 +52,8 @@ mod test {
 	    array_value: Vec<NestedTestVecItem>,
 	    array_strings: Vec<String>,
 	    array_nums: Vec<i32>,
-	    array_bools: Vec<bool>
+	    array_bools: Vec<bool>,
+	    string_with_quotes: String
 	}
 
 	#[derive(FromJson)]
@@ -125,5 +127,11 @@ mod test {
 	    let test = Test::from_json(&JsonObject::from_string(&TEST_JSON)).unwrap();
 	    assert_eq!(test.array_bools[0], true);
 	    assert_eq!(test.array_bools[1], false);
+	}
+
+	#[test]
+	fn string_with_quotes() {
+	    let test = Test::from_json(&JsonObject::from_string(&TEST_JSON)).unwrap();
+	    assert_eq!(test.string_with_quotes, "Hello \"World!\"")
 	}
 }

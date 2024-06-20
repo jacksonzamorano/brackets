@@ -142,7 +142,6 @@ impl JsonArray {
         while enumerator.peek().is_some() {
             if *enumerator.peek().unwrap_or(&'_') == ']' { _ = enumerator.next();continue; } 
             let v = JsonDecoder::derive_value(&mut enumerator);
-            println!("Value: {}", v);
             values.push(v);
         }
         JsonArray { values }
@@ -220,7 +219,7 @@ impl JsonType for JsonTypeString {
         let mut prev_prev = '_';
         while let Some(n) = stream.next() {
             buf.push(n);
-            if n == '"' && (prev != '\\' || prev_prev != '\\') {
+            if n == '"' && (prev != '\\' || prev_prev == '\\') {
                 break;
             }
             prev_prev = prev;
@@ -241,7 +240,7 @@ impl JsonType for JsonTypeObject {
         let mut is_in_string = false;
 
         while let Some(n) = stream.next() {
-            if n == '"' && (prev != '\\' || prev_prev != '\\') {
+            if n == '"' && (prev != '\\' || prev_prev == '\\') {
                 is_in_string = !is_in_string;
             }
             if !is_in_string && n.is_whitespace() { continue; }
@@ -267,7 +266,7 @@ impl JsonType for JsonTypeArray {
         let mut is_in_string = false;
         
         while let Some(n) = stream.next() {
-            if n == '"' && (prev != '\\' || prev_prev != '\\') {
+            if n == '"' && (prev != '\\' || prev_prev == '\\') {
                 is_in_string = !is_in_string;
             }
             if !is_in_string && n.is_whitespace() { continue; }
@@ -443,7 +442,7 @@ pub trait JsonRetrieve {
 impl JsonRetrieve for String {
     fn parse(key: String, value: Option<&String>) -> Result<Self, JsonParseError> {
         let val = value.ok_or(JsonParseError::NotFound(key))?;
-        Ok(val[1..val.len()-1].to_string())
+        Ok(val[1..val.len()-1].replace("\\\"", "\"").to_string())
     }
 }
 impl JsonRetrieve for i32 {
