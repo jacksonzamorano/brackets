@@ -1,6 +1,5 @@
 use std::{collections::HashMap, str::Chars};
 
-
 macro_rules! skip_whitespace {
     ($c: expr) => {
         if $c == ' ' || $c == '\n' || $c == '\t' {
@@ -27,30 +26,22 @@ impl JsonDecoder {
     }
 
     fn derive_value<T: Iterator<Item = char>>(enumerator: &mut T) -> String {
-        let mut current_value = String::new();
         let mut value_start = ' ';
         while value_start == ' ' || value_start == ',' {
-            value_start = enumerator.next().unwrap();
-        }
-        let current_type = JsonType::type_for_delimiter(value_start);
-        if current_type.include_delimeter() {
-            current_value.push(value_start);
-        }
-        let mut delimeter_count = current_type.initial_increment();
-        while let Some(n) = enumerator.next() {
-            if delimeter_count == 1 {
-                skip_whitespace!(n);
+            if let Some(v) = enumerator.next() {
+                value_start = v;
+            } else {
+                return String::new();
             }
-            if current_type.should_increment(current_value.chars().last().unwrap_or('_'), n, delimeter_count) {
-                delimeter_count += 1;
-            } else if current_type.should_decrement(current_value.chars().last().unwrap_or('_'), n, delimeter_count) {
-                delimeter_count -= 1;
-            }
-            if delimeter_count == 0 && current_type.character_ends_type(n) { break; }
-            current_value.push(n);
         }
-        current_value
-    }
+        let exec = match value_start {
+            '\"' => JsonTypeString::extract,
+            '{' => JsonTypeObject::extract,
+            '[' => JsonTypeArray::extract,
+            _ => JsonTypePrimitive::extract
+        };
+        exec(enumerator, value_start.to_string())
+    }   
 }
 
 /// A JSON structure that is formatted
@@ -86,9 +77,11 @@ impl JsonObject {
         let mut enumerator = json.chars();
         while let Some(c) = enumerator.next() {
             if c == '"' {
-                keys.insert(JsonDecoder::derive_key(&mut enumerator), JsonDecoder::derive_value(&mut enumerator));
+                let (k, v) = (JsonDecoder::derive_key(&mut enumerator), JsonDecoder::derive_value(&mut enumerator));
+                keys.insert(k, v);
             }
         }
+        // dbg!(&keys);
         JsonObject { keys }
     }
 
@@ -141,10 +134,17 @@ impl JsonArray {
         let mut values: Vec<String> = Vec::new();
         let mut enumerator = json.chars().peekable();
 
-        while enumerator.peek().is_some() {
-            values.push(JsonDecoder::derive_value(&mut enumerator));
+        while let Some(v) = enumerator.peek() {
+            if v.is_whitespace() || *v == '[' {
+                enumerator.next();
+            } else { break }
         }
-
+        while enumerator.peek().is_some() {
+            if *enumerator.peek().unwrap_or(&'_') == ']' { _ = enumerator.next();continue; } 
+            let v = JsonDecoder::derive_value(&mut enumerator);
+            println!("Value: {}", v);
+            values.push(v);
+        }
         JsonArray { values }
     }
 
@@ -167,8 +167,8 @@ impl JsonArray {
         }
         let mut build = Vec::new();
         for i in 0..self.values.len() {
-            let value = &self.values[i];
-            build.push(T::parse(i.to_string(), Some(value))?);
+            let value = self.values.get(i);
+            build.push(T::parse(i.to_string(), value)?);
         }
         Ok(build)
     }
@@ -196,63 +196,89 @@ impl Default for JsonArray {
     }
 }
 
-#[derive(Debug, PartialEq)]
-enum JsonType {
-    Primitive,
-    String,
-    Object,
-    Array,
+trait JsonType {
+    fn extract<T: Iterator<Item = char>>(stream: &mut T, intl_value: String) -> String;
 }
 
-impl JsonType {
-    pub fn type_for_delimiter(dlm: char) -> JsonType {
-        if dlm == '[' {
-            JsonType::Array
-        } else if dlm == '{' {
-            JsonType::Object
-        } else if dlm == '"' {
-            JsonType::String
-        } else {
-            JsonType::Primitive
+struct JsonTypePrimitive;
+impl JsonType for JsonTypePrimitive {
+    fn extract<T: Iterator<Item = char>>(stream: &mut T, intl_value: String) -> String {
+        let mut buf = intl_value;
+        while let Some(n) = stream.next() {
+            if n.is_whitespace() || n == ',' || n == '}' || n == ']' { break }
+            buf.push(n);
         }
+        return buf
     }
+}
 
-    fn character_ends_type(&self, c: char) -> bool {
-        match self {
-            JsonType::Primitive => c == ',' || c == '}' || c == ']',
-            JsonType::String => c == ',' || c == '"',
-            JsonType::Object => c == ',' || c == '}',
-            JsonType::Array => c == ',' || c == ']',
+struct JsonTypeString;
+impl JsonType for JsonTypeString {
+    fn extract<T: Iterator<Item = char>>(stream: &mut T, intl_value: String) -> String {
+        let mut buf = intl_value;
+        let mut prev = '_';
+        let mut prev_prev = '_';
+        while let Some(n) = stream.next() {
+            buf.push(n);
+            if n == '"' && (prev != '\\' || prev_prev != '\\') {
+                break;
+            }
+            prev_prev = prev;
+            prev = n;
         }
+        return buf
     }
+}
 
-    fn initial_increment(&self) -> i32 {
-        match self {
-            JsonType::Primitive => 0,
-            _ => 1,
+struct JsonTypeObject;
+impl JsonType for JsonTypeObject {
+    fn extract<T: Iterator<Item = char>>(stream: &mut T, intl_value: String) -> String {
+        let mut buf = intl_value;
+        let mut sep_stack = 1;
+
+        let mut prev = '_';
+        let mut prev_prev = '_';
+        let mut is_in_string = false;
+
+        while let Some(n) = stream.next() {
+            if n == '"' && (prev != '\\' || prev_prev != '\\') {
+                is_in_string = !is_in_string;
+            }
+            if !is_in_string && n.is_whitespace() { continue; }
+            buf.push(n);
+            if n == '{' { sep_stack += 1 }
+            else if n == '}' { sep_stack -= 1 }
+            if sep_stack == 0 { break }
+            prev_prev = prev;
+            prev = n;
         }
+        return buf
     }
+}
 
-    fn should_increment(&self, prev: char, c: char, count: i32) -> bool {
-        match self {
-            JsonType::Primitive => false,
-            JsonType::String => prev != '\\' && c == '"' && count % 2 == 0,
-            JsonType::Object => c == '{',
-            JsonType::Array => c == '[',
+struct JsonTypeArray;
+impl JsonType for JsonTypeArray {
+    fn extract<T: Iterator<Item = char>>(stream: &mut T, intl_value: String) -> String {
+        let mut buf = intl_value;
+        let mut sep_stack = 1;
+
+        let mut prev = '_';
+        let mut prev_prev = '_';
+        let mut is_in_string = false;
+        
+        while let Some(n) = stream.next() {
+            if n == '"' && (prev != '\\' || prev_prev != '\\') {
+                is_in_string = !is_in_string;
+            }
+            if !is_in_string && n.is_whitespace() { continue; }
+            buf.push(n);
+            if n == '[' { sep_stack += 1 }
+            else if n == ']' { sep_stack -= 1 }
+            if sep_stack == 0 { break }
+            prev_prev = prev;
+            prev = n;
         }
-    }
-
-    fn should_decrement(&self, prev: char, c: char, count: i32) -> bool {
-        match self {
-            JsonType::Primitive => false,
-            JsonType::String => prev != '\\' && c == '"' && count % 2 == 1,
-            JsonType::Object => c == '}',
-            JsonType::Array => c == ']',
-        }
-    }
-
-    fn include_delimeter(&self) -> bool {
-        return *self == JsonType::Primitive;
+        return buf
     }
 }
 
@@ -416,7 +442,8 @@ pub trait JsonRetrieve {
 
 impl JsonRetrieve for String {
     fn parse(key: String, value: Option<&String>) -> Result<Self, JsonParseError> {
-        Ok(value.ok_or(JsonParseError::NotFound(key))?.to_string())
+        let val = value.ok_or(JsonParseError::NotFound(key))?;
+        Ok(val[1..val.len()-1].to_string())
     }
 }
 impl JsonRetrieve for i32 {
