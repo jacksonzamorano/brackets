@@ -416,7 +416,7 @@ impl ToJson for JsonObject {
             output += v;
             output += ",";
         }
-        output.pop();
+        if output != "{" { output.pop(); }
         output += "}";
         output
     }

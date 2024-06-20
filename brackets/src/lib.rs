@@ -5,7 +5,7 @@ pub use json::{FromJson, JsonArray, JsonObject, JsonParseError, ToJson};
 #[cfg(test)]
 mod test {
 
-	use crate as brackets;
+	use crate::{self as brackets, JsonArray, ToJson};
 	use crate::{FromJson, JsonObject};
 
 	const TEST_JSON: &'static str = r#"
@@ -42,6 +42,7 @@ mod test {
 			"array_bools": [ true, false ]
 		}
 	"#;
+
 	#[derive(FromJson)]
 	struct Test {
 	    string_value: String,
